@@ -1,0 +1,36 @@
+# Composer & Dependencies
+/vendor/
+composer.lock
+composer.phar
+
+# Testing & Code Coverage
+.phpunit.result.cache
+.phpunit.cache/
+coverage/
+*.cov
+*.clover
+
+# Temporary files & logs
+*.log
+*.tmp
+*.cache
+tmp/
+temp/
+
+# Environment
+.env
+.env.local
+.env.*.local
+
+# IDE & Editor files
+.idea/
+.vscode/
+*.sublime-project
+*.sublime-workspace
+.DS_Store
+Thumbs.db
+Desktop.ini
+
+# Output artifacts
+/output/
+*.out

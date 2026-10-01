@@ -1,0 +1,233 @@
+#!/usr/bin/env php
+<?php
+
+declare(strict_types=1);
+
+// Locate autoloader
+if (file_exists(__DIR__ . '/../vendor/autoload.php')) {
+    require_once __DIR__ . '/../vendor/autoload.php';
+} else {
+    require_once __DIR__ . '/../src/Autoloader.php';
+}
+
+use EidCloud\DataTransformer\Transformer;
+
+$version = '1.0.0';
+
+/**
+ * CLI Entry point for eidcloud-data.
+ */
+function printBanner(): void
+{
+    echo "\033[1;36m";
+    echo "  _____ _     _  ____ _                 _ \n";
+    echo " | ____(_) __| |/ ___| | ___  _   _  __| |\n";
+    echo " |  _| | |/ _` | |   | |/ _ \| | | |/ _` |\n";
+    echo " | |___| | (_| | |___| | (_) | |_| | (_| |\n";
+    echo " |_____|_|\__,_|\____|_|\___/ \__,_|\__,_|\n";
+    echo "     Data Transformer & Query Engine       \n";
+    echo "\033[0m";
+    echo "  v1.0.0 | Pure PHP 8.2+ High-Performance Pipeline\n\n";
+}
+
+function printHelp(): void
+{
+    printBanner();
+    echo "\033[1;33mUSAGE:\033[0m\n";
+    echo "  php bin/eidcloud-data convert <input-file> --to=<format> [options]\n";
+    echo "  php bin/eidcloud-data [command] [options]\n\n";
+
+    echo "\033[1;33mCOMMANDS:\033[0m\n";
+    echo "  \033[1;32mconvert\033[0m <file>      Transform dataset from input format to target format\n";
+    echo "  \033[1;32mversion\033[0m              Display version information\n";
+    echo "  \033[1;32mhelp\033[0m                 Display this help reference\n\n";
+
+    echo "\033[1;33mOPTIONS:\033[0m\n";
+    echo "  \033[1;32m--to=<format>\033[0m         Target format: json, csv, sql, xml, ndjson\n";
+    echo "  \033[1;32m-o, --output=<path>\033[0m   Explicit output file path (default: <input>.<ext>)\n";
+    echo "  \033[1;32m--stdout\033[0m              Output generated content directly to STDOUT\n";
+    echo "  \033[1;32m--select=\"col1,col2\"\033[0m  Project specific columns (supports aliases: 'col AS alias')\n";
+    echo "  \033[1;32m--where=\"condition\"\033[0m   Filter rows using SQL-like syntax (AND, OR, =, !=, >, <, LIKE, IN)\n";
+    echo "  \033[1;32m--sort=\"col:asc|desc\"\033[0m Sort rows by one or more columns (e.g. 'created_at:desc')\n";
+    echo "  \033[1;32m--limit=<num>\033[0m         Limit number of transformed records\n";
+    echo "  \033[1;32m--offset=<num>\033[0m        Offset start row index\n";
+    echo "  \033[1;32m--table=<name>\033[0m        Target table name for SQL generation (default: filename)\n";
+    echo "  \033[1;32m--no-create-table\033[0m     Omit CREATE TABLE statement in SQL generator\n";
+    echo "  \033[1;32m--batch-size=<num>\033[0m    Number of rows per INSERT statement in SQL (default: 100)\n";
+    echo "  \033[1;32m--dialect=<name>\033[0m      SQL dialect: mysql (default), postgres, sqlite\n";
+    echo "  \033[1;32m--delimiter=<char>\033[0m    Custom CSV delimiter (default: auto-detected)\n";
+    echo "  \033[1;32m--ndjson\033[0m              Output JSON as newline-delimited JSON Lines\n";
+    echo "  \033[1;32m--json\033[0m                Machine-readable execution summary JSON\n";
+    echo "  \033[1;32m-h, --help\033[0m            Display this help dialog\n";
+    echo "  \033[1;32m-v, --version\033[0m         Display version information\n\n";
+
+    echo "\033[1;33mEXAMPLES:\033[0m\n";
+    echo "  php bin/eidcloud-data convert users.csv --to=json\n";
+    echo "  php bin/eidcloud-data convert users.json --to=sql --table=users --select=\"id,name,email\"\n";
+    echo "  php bin/eidcloud-data convert users.csv --to=sql --where=\"status=active and age>21\"\n";
+    echo "  php bin/eidcloud-data convert data.xml --to=csv --sort=\"created_at:desc\" --limit=100\n";
+    echo "  php bin/eidcloud-data convert users.csv --to=json --json\n";
+}
+
+// Parse argv
+$rawArgs = array_slice($argv, 1);
+
+if (empty($rawArgs) || in_array('-h', $rawArgs, true) || in_array('--help', $rawArgs, true) || in_array('help', $rawArgs, true)) {
+    printHelp();
+    exit(0);
+}
+
+if (in_array('-v', $rawArgs, true) || in_array('--version', $rawArgs, true) || in_array('version', $rawArgs, true)) {
+    echo "eidcloud-data version {$version}\n";
+    exit(0);
+}
+
+$command = $rawArgs[0];
+if ($command !== 'convert') {
+    // Treat first argument as input file directly if not keyword
+    if (file_exists($command)) {
+        array_unshift($rawArgs, 'convert');
+        $command = 'convert';
+    } else {
+        fwrite(STDERR, "\033[1;31mError:\033[0m Unknown command '{$command}'. Run --help for usage.\n");
+        exit(1);
+    }
+}
+
+// Parse options
+$inputFile = null;
+$options = [
+    'to' => null,
+    'output' => null,
+    'stdout' => false,
+    'select' => null,
+    'where' => null,
+    'sort' => null,
+    'limit' => null,
+    'offset' => 0,
+    'table' => null,
+    'create_table' => true,
+    'batch_size' => 100,
+    'dialect' => 'mysql',
+    'delimiter' => null,
+    'ndjson' => false,
+    'json' => false,
+];
+
+for ($i = 1; $i < count($rawArgs); $i++) {
+    $arg = $rawArgs[$i];
+
+    if ($arg === '--json') {
+        $options['json'] = true;
+    } elseif ($arg === '--stdout') {
+        $options['stdout'] = true;
+    } elseif ($arg === '--no-create-table') {
+        $options['create_table'] = false;
+    } elseif ($arg === '--ndjson') {
+        $options['ndjson'] = true;
+    } elseif (str_starts_with($arg, '--to=')) {
+        $options['to'] = substr($arg, 5);
+    } elseif (str_starts_with($arg, '--output=')) {
+        $options['output'] = substr($arg, 9);
+    } elseif ($arg === '-o' && isset($rawArgs[$i + 1])) {
+        $options['output'] = $rawArgs[++$i];
+    } elseif (str_starts_with($arg, '--select=')) {
+        $options['select'] = substr($arg, 9);
+    } elseif (str_starts_with($arg, '--where=')) {
+        $options['where'] = substr($arg, 8);
+    } elseif (str_starts_with($arg, '--sort=')) {
+        $options['sort'] = substr($arg, 7);
+    } elseif (str_starts_with($arg, '--limit=')) {
+        $options['limit'] = (int)substr($arg, 8);
+    } elseif (str_starts_with($arg, '--offset=')) {
+        $options['offset'] = (int)substr($arg, 9);
+    } elseif (str_starts_with($arg, '--table=')) {
+        $options['table'] = substr($arg, 8);
+    } elseif (str_starts_with($arg, '--batch-size=')) {
+        $options['batch_size'] = (int)substr($arg, 13);
+    } elseif (str_starts_with($arg, '--dialect=')) {
+        $options['dialect'] = substr($arg, 10);
+    } elseif (str_starts_with($arg, '--delimiter=')) {
+        $options['delimiter'] = substr($arg, 12);
+    } elseif (!str_starts_with($arg, '-') && $inputFile === null) {
+        $inputFile = $arg;
+    }
+}
+
+if ($inputFile === null) {
+    if ($options['json']) {
+        echo json_encode(['status' => 'error', 'message' => 'No input file specified'], JSON_PRETTY_PRINT) . "\n";
+    } else {
+        fwrite(STDERR, "\033[1;31mError:\033[0m No input file provided. Usage: php bin/eidcloud-data convert <input-file> --to=<format>\n");
+    }
+    exit(1);
+}
+
+if (!file_exists($inputFile)) {
+    if ($options['json']) {
+        echo json_encode(['status' => 'error', 'message' => "Input file does not exist: {$inputFile}"], JSON_PRETTY_PRINT) . "\n";
+    } else {
+        fwrite(STDERR, "\033[1;31mError:\033[0m Input file does not exist: {$inputFile}\n");
+    }
+    exit(1);
+}
+
+if ($options['to'] === null) {
+    if ($options['json']) {
+        echo json_encode(['status' => 'error', 'message' => 'Missing target format --to=<format>'], JSON_PRETTY_PRINT) . "\n";
+    } else {
+        fwrite(STDERR, "\033[1;31mError:\033[0m Target format not specified. Use --to=json|csv|sql|xml\n");
+    }
+    exit(1);
+}
+
+$targetFormat = strtolower($options['to']);
+$transformer = new Transformer();
+
+// Auto-determine output file path if not writing to stdout and not specified
+if (!$options['stdout'] && empty($options['output'])) {
+    $info = pathinfo($inputFile);
+    $dir = $info['dirname'] ?? '.';
+    $base = $info['filename'];
+    $ext = match ($targetFormat) {
+        'json', 'ndjson' => $options['ndjson'] ? 'jsonl' : 'json',
+        'sql' => 'sql',
+        'xml' => 'xml',
+        default => 'csv',
+    };
+    $options['output'] = ($dir !== '.' ? $dir . '/' : '') . $base . '.' . $ext;
+}
+
+try {
+    $result = $transformer->convert($inputFile, $targetFormat, $options);
+
+    if ($options['stdout'] && isset($result['content'])) {
+        echo $result['content'];
+        exit(0);
+    }
+
+    if ($options['json']) {
+        // Output machine-readable JSON
+        echo json_encode($result, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES) . "\n";
+    } else {
+        echo "\033[1;32m✔ Transformation Successful!\033[0m\n";
+        echo "  • Source File:        {$result['input']}\n";
+        echo "  • Destination File:   " . ($result['output'] ?? 'STDOUT') . "\n";
+        echo "  • Target Format:      " . strtoupper($result['format']) . "\n";
+        echo "  • Records Processed:  " . number_format($result['records_processed']) . "\n";
+        echo "  • Execution Time:     {$result['elapsed_time_ms']} ms\n";
+        echo "  • Peak Memory:        {$result['memory_peak_mb']} MB\n";
+    }
+    exit(0);
+} catch (\Throwable $e) {
+    if ($options['json']) {
+        echo json_encode([
+            'status' => 'error',
+            'message' => $e->getMessage(),
+            'code' => $e->getCode(),
+        ], JSON_PRETTY_PRINT) . "\n";
+    } else {
+        fwrite(STDERR, "\033[1;31mTransformation Error:\033[0m " . $e->getMessage() . "\n");
+    }
+    exit(1);
+}

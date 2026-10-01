@@ -1,0 +1,12 @@
+{
+  "description": "Universal data transformer and query engine converting between CSV, JSON, SQL inserts, and XML in pure PHP",
+  "topics": [
+    "eidcloud",
+    "data-transformer",
+    "csv-to-json",
+    "sql-generator",
+    "data-converter",
+    "cli-tool",
+    "php8"
+  ]
+}

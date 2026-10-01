@@ -1,0 +1,26 @@
+{
+  "name": "eidcloud/data-transformer",
+  "description": "Universal data transformer and query engine converting between CSV, JSON, SQL inserts, and XML in pure PHP",
+  "type": "library",
+  "license": "MIT",
+  "authors": [
+    {
+      "name": "Eng. MHD. Shadi AL-Hasan",
+      "email": "mhd.shadi.alhasan@gmail.com",
+      "role": "Lead Architect & Maintainer"
+    }
+  ],
+  "require": {
+    "php": ">=8.2"
+  },
+  "autoload": {
+    "psr-4": {
+      "EidCloud\\DataTransformer\\": "src/"
+    }
+  },
+  "bin": [
+    "bin/eidcloud-data"
+  ],
+  "minimum-stability": "stable",
+  "prefer-stable": true
+}
